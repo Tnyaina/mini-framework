@@ -3,22 +3,14 @@ setlocal EnableDelayedExpansion
 
 :: Configuration
 set "PROJECT_ROOT=%CD%"
-set "WEBAPP_NAME=mini-framework"
-set "TOMCAT_HOME=C:\Program Files\Apache Software Foundation\Tomcat 10.1"
-set "TOMCAT_WEBAPPS=%TOMCAT_HOME%\webapps"
-
-:: Création des répertoires temporaires
 set "BUILD_DIR=%PROJECT_ROOT%\build"
-set "CLASSES_DIR=%BUILD_DIR%\WEB-INF\classes"
-if not exist "%CLASSES_DIR%" mkdir "%CLASSES_DIR%"
+set "CLASSES_DIR=%BUILD_DIR%\classes"
 
-echo === Nettoyage des anciens builds ===
+:: Nettoyage ancien build
 if exist "%BUILD_DIR%" rd /s /q "%BUILD_DIR%"
-mkdir "%BUILD_DIR%"
 mkdir "%CLASSES_DIR%"
 
-echo === Compilation des fichiers Java ===
-:: Création du CLASSPATH
+:: Compilation Java
 set "CLASSPATH="
 for %%i in ("%PROJECT_ROOT%\lib\*.jar") do (
     if "!CLASSPATH!"=="" (
@@ -27,41 +19,23 @@ for %%i in ("%PROJECT_ROOT%\lib\*.jar") do (
         set "CLASSPATH=!CLASSPATH!;%%i"
     )
 )
-
-:: Compilation avec la nouvelle structure
 dir /s /b "%PROJECT_ROOT%\src\main\java\*.java" > sources.txt
 javac -cp "%CLASSPATH%" -d "%CLASSES_DIR%" @sources.txt
 if errorlevel 1 (
-    echo Erreur lors de la compilation
+    echo Erreur compilation
     del sources.txt
     exit /b 1
 )
 del sources.txt
 
-echo === Copie des ressources Web ===
-:: Copie du contenu webapp avec la nouvelle structure
-xcopy /E /I /Y "%PROJECT_ROOT%\src\main\webapp\*" "%BUILD_DIR%"
+:: Création du JAR
+if exist "%PROJECT_ROOT%\mini-framework.jar" del "%PROJECT_ROOT%\mini-framework.jar"
+cd "%CLASSES_DIR%"
+jar -cvf "%PROJECT_ROOT%\mini-framework.jar" *
 
-:: Copie des bibliothèques
-if not exist "%BUILD_DIR%\WEB-INF\lib" mkdir "%BUILD_DIR%\WEB-INF\lib"
-xcopy /E /I /Y "%PROJECT_ROOT%\lib\*.jar" "%BUILD_DIR%\WEB-INF\lib\"
-:: Suppression de servlet-api.jar du WAR
-if exist "%BUILD_DIR%\WEB-INF\lib\servlet-api.jar" del "%BUILD_DIR%\WEB-INF\lib\servlet-api.jar"
+:: Copier le JAR dans C:\lib
+if not exist "C:\lib" mkdir "C:\lib"
+copy "%PROJECT_ROOT%\mini-framework.jar" "C:\lib\"
 
-echo === Création du WAR ===
-cd "%BUILD_DIR%"
-jar -cvf "%WEBAPP_NAME%.war" *
-
-echo === Déploiement vers Tomcat ===
-:: Suppression de l'ancienne version si elle existe
-if exist "%TOMCAT_WEBAPPS%\%WEBAPP_NAME%.war" del "%TOMCAT_WEBAPPS%\%WEBAPP_NAME%.war"
-if exist "%TOMCAT_WEBAPPS%\%WEBAPP_NAME%" rd /s /q "%TOMCAT_WEBAPPS%\%WEBAPP_NAME%"
-
-:: Copie du nouveau WAR
-copy "%WEBAPP_NAME%.war" "%TOMCAT_WEBAPPS%"
-
-echo === Déploiement terminé ===
-echo.
-echo Accédez à votre application sur: http://localhost:8888/%WEBAPP_NAME%
-echo.
+echo Mini-framework JAR créé et copié dans C:\lib
 cd "%PROJECT_ROOT%"
