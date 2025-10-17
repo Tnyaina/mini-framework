@@ -1,26 +1,45 @@
 import java.io.*;
 import java.net.URL;
 
-import jakarta.servlet.*; 
-import jakarta.servlet.http.*; 
- 
-public class FrontServlet extends HttpServlet { 
-    public void doGet(HttpServletRequest request, HttpServletResponse response) 
-            throws ServletException, IOException { 
-        response.setContentType("text/html");
+import jakarta.servlet.*;
+import jakarta.servlet.http.*;
+
+public class FrontServlet extends HttpServlet {
+    protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         String url = request.getRequestURI();
-        String context = request.getContextPath();
-        String path = url.substring(context.length());
+        String resourceName = url.substring(url.lastIndexOf("/") + 1);
         
-        URL resource = getServletContext().getResource(path);
-        if (resource != null && (path.endsWith(".jsp") || path.endsWith(".html"))) {
-            RequestDispatcher rd = request.getRequestDispatcher(path);
-            rd.forward(request, response);
+        if (chercherRessources(resourceName, request, response)) {
+            // Ressource trouvée et transférée
         } else {
-            response.setContentType("text/html;charset=UTF-8");
-            response.getWriter().println("<html><body>");
-            response.getWriter().println("<p>404 not found: " + url + "</p>");
-            response.getWriter().println("</body></html>");
-        }    
-    }    
+        }
+    }
+
+    protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        String url = request.getRequestURI();
+        String resourceName = url.substring(url.lastIndexOf("/") + 1);
+        
+        if (chercherRessources(resourceName, request, response)) {
+            // Ressource trouvée et transférée
+        } else {
+        }
+    }
+
+    public boolean chercherRessources(String resourceName, HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
+        // Vérifier si la ressource existe réellement
+        String resourcePath = getServletContext().getRealPath("/" + resourceName);
+        
+        if (resourcePath != null && new File(resourcePath).exists()) {
+            RequestDispatcher dispatcher = getServletContext().getNamedDispatcher("default");
+            if (dispatcher != null) {
+                dispatcher.forward(request, response);
+                return true;
+            }
+        } else {
+            String url = request.getRequestURI();
+            response.getWriter().write(url);
+        }
+        
+        return false;
+    }
 }
