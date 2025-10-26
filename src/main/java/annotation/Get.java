@@ -1,3 +1,4 @@
+package annotation;
 import java.lang.annotation.*;
 
 // Annotation pour les routes GET
