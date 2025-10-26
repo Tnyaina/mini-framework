@@ -1,4 +1,4 @@
-package scan;
+package util;
 
 import annotation.Controller;
 import java.io.File;
@@ -9,9 +9,6 @@ import java.util.List;
 
 public class ControllerScanner {
     
-    /**
-     * Scanne TOUT le projet pour trouver les classes annotées @Controller
-     */
     public static List<Class<?>> getAllControllers() throws Exception {
         List<Class<?>> controllers = new ArrayList<>();
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
@@ -31,9 +28,6 @@ public class ControllerScanner {
         return controllers;
     }
     
-    /**
-     * Scanne récursivement un répertoire
-     */
     private static void scanDirectory(File directory, String packageName, List<Class<?>> controllers) {
         File[] files = directory.listFiles();
         
