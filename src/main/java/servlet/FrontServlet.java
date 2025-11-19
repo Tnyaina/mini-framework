@@ -7,6 +7,7 @@ import jakarta.servlet.*;
 import jakarta.servlet.http.*;
 import util.Mapping;
 import util.ModelView;
+import util.ParameterResolver;
 import util.UrlMatcher;
 
 public class FrontServlet extends HttpServlet {
@@ -61,7 +62,8 @@ public class FrontServlet extends HttpServlet {
                 Object controllerInstance = mapping.getControllerClass()
                         .getDeclaredConstructor().newInstance();
 
-                Object result = mapping.getMethod().invoke(controllerInstance);
+                Object[] args = ParameterResolver.resolveParameters(mapping.getMethod(), request);
+                Object result = mapping.getMethod().invoke(controllerInstance, args);
 
                 if (result instanceof String) {
                     String view = (String) result;
@@ -78,7 +80,7 @@ public class FrontServlet extends HttpServlet {
                         request.setAttribute(entry.getKey(), entry.getValue());
                     }
 
-                    request.getRequestDispatcher(mv.getView()).forward(request, response);
+                    request.getRequestDispatcher( "/" + mv.getView()).forward(request, response);
                 }
 
             } catch (Exception e) {
