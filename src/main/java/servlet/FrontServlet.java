@@ -7,6 +7,7 @@ import jakarta.servlet.*;
 import jakarta.servlet.http.*;
 import util.Mapping;
 import util.ModelView;
+import util.UrlMatcher;
 
 public class FrontServlet extends HttpServlet {
 
@@ -43,7 +44,17 @@ public class FrontServlet extends HttpServlet {
         @SuppressWarnings("unchecked")
         Map<String, Mapping> urlMappings = (Map<String, Mapping>) getServletContext().getAttribute("urlMappings");
 
-        Mapping mapping = urlMappings.get(key);
+        Mapping mapping = null;
+        for (Map.Entry<String, Mapping> entry : urlMappings.entrySet()) {
+            String mappingKey = entry.getKey();
+            if (mappingKey.startsWith(httpMethod + ":")) {
+                String pattern = mappingKey.substring(httpMethod.length() + 1);
+                if (UrlMatcher.matches(pattern, url)) {
+                    mapping = entry.getValue();
+                    break;
+                }
+            }
+        }
 
         if (mapping != null) {
             try {
