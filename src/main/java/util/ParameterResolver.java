@@ -1,32 +1,48 @@
 package util;
 
 import annotation.Param;
+import annotation.PathVariable;
 import jakarta.servlet.http.HttpServletRequest;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Map;
 
 public class ParameterResolver {
 
     public static Object[] resolveParameters(Method method, HttpServletRequest request) {
+        return resolveParameters(method, request, null);
+    }
+
+    public static Object[] resolveParameters(Method method, HttpServletRequest request, 
+                                            Map<String, String> pathVariables) {
         Parameter[] parameters = method.getParameters();
         Object[] args = new Object[parameters.length];
 
         for (int i = 0; i < parameters.length; i++) {
             Parameter param = parameters[i];
+            Class<?> paramType = param.getType();
+            String value = null;
             
-            // Utiliser @Param si présent, sinon utiliser le nom de la variable
-            String paramName;
-            if (param.isAnnotationPresent(Param.class)) {
-                paramName = param.getAnnotation(Param.class).value();
-            } else {
-                paramName = param.getName();
+            // Vérifier si c'est une variable de chemin (@PathVariable)
+            if (param.isAnnotationPresent(PathVariable.class)) {
+                String varName = param.getAnnotation(PathVariable.class).value();
+                if (pathVariables != null) {
+                    value = pathVariables.get(varName);
+                }
+            }
+            // Sinon, vérifier si c'est un paramètre de requête (@Param ou nom par défaut)
+            else {
+                String paramName;
+                if (param.isAnnotationPresent(Param.class)) {
+                    paramName = param.getAnnotation(Param.class).value();
+                } else {
+                    paramName = param.getName();
+                }
+                value = request.getParameter(paramName);
             }
             
-            Class<?> paramType = param.getType();
-
-            String value = request.getParameter(paramName);
             args[i] = convertValue(value, paramType);
         }
 

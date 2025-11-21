@@ -40,18 +40,19 @@ public class FrontServlet extends HttpServlet {
         String contextPath = request.getContextPath();
         String url = uri.substring(contextPath.length());
 
-        String key = httpMethod + ":" + url;
-
         @SuppressWarnings("unchecked")
         Map<String, Mapping> urlMappings = (Map<String, Mapping>) getServletContext().getAttribute("urlMappings");
 
         Mapping mapping = null;
+        String matchedPattern = null;
+        
         for (Map.Entry<String, Mapping> entry : urlMappings.entrySet()) {
             String mappingKey = entry.getKey();
             if (mappingKey.startsWith(httpMethod + ":")) {
                 String pattern = mappingKey.substring(httpMethod.length() + 1);
                 if (UrlMatcher.matches(pattern, url)) {
                     mapping = entry.getValue();
+                    matchedPattern = pattern;
                     break;
                 }
             }
@@ -62,7 +63,11 @@ public class FrontServlet extends HttpServlet {
                 Object controllerInstance = mapping.getControllerClass()
                         .getDeclaredConstructor().newInstance();
 
-                Object[] args = ParameterResolver.resolveParameters(mapping.getMethod(), request);
+                // Extraire les variables de chemin
+                Map<String, String> pathVariables = UrlMatcher.extractPathVariables(matchedPattern, url);
+                
+                // Résoudre les paramètres avec les variables de chemin
+                Object[] args = ParameterResolver.resolveParameters(mapping.getMethod(), request, pathVariables);
                 Object result = mapping.getMethod().invoke(controllerInstance, args);
 
                 if (result instanceof String) {
@@ -80,7 +85,7 @@ public class FrontServlet extends HttpServlet {
                         request.setAttribute(entry.getKey(), entry.getValue());
                     }
 
-                    request.getRequestDispatcher( "/" + mv.getView()).forward(request, response);
+                    request.getRequestDispatcher("/" + mv.getView()).forward(request, response);
                 }
 
             } catch (Exception e) {
