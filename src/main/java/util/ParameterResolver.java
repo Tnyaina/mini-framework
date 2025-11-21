@@ -1,5 +1,6 @@
 package util;
 
+import annotation.Param;
 import jakarta.servlet.http.HttpServletRequest;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
@@ -14,10 +15,18 @@ public class ParameterResolver {
 
         for (int i = 0; i < parameters.length; i++) {
             Parameter param = parameters[i];
-            String paramName = param.getName(); // doit correspondre au name dans le formulaire
+            
+            // Utiliser @Param si présent, sinon utiliser le nom de la variable
+            String paramName;
+            if (param.isAnnotationPresent(Param.class)) {
+                paramName = param.getAnnotation(Param.class).value();
+            } else {
+                paramName = param.getName();
+            }
+            
             Class<?> paramType = param.getType();
 
-            String value = request.getParameter(paramName); // lecture du paramètre
+            String value = request.getParameter(paramName);
             args[i] = convertValue(value, paramType);
         }
 
@@ -55,7 +64,7 @@ public class ParameterResolver {
             return LocalDateTime.parse(value);
         }
 
-        return null; // type non supporté
+        return null;
     }
 
     private static Object getDefaultValue(Class<?> type) {
@@ -66,6 +75,6 @@ public class ParameterResolver {
         if (type == boolean.class) return false;
         if (type == short.class) return (short) 0;
         if (type == byte.class) return (byte) 0;
-        return null; // String, objets, enums → null par défaut
+        return null;
     }
 }
