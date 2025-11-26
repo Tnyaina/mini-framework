@@ -1,0 +1,9 @@
+# Build directory
+build/
+
+# Deployment script
+deploy.sh
+
+# JAR file
+mini-framework.jar  
+mini-framework.jar
