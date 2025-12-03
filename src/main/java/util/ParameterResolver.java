@@ -7,6 +7,9 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Enumeration;
+import java.lang.reflect.Type;
+import java.util.HashMap;
 import java.util.Map;
 
 public class ParameterResolver {
@@ -23,17 +26,48 @@ public class ParameterResolver {
         for (int i = 0; i < parameters.length; i++) {
             Parameter param = parameters[i];
             Class<?> paramType = param.getType();
+            
+            // Injecter Map<String, Object> avec tous les paramètres de la requête
+            if (paramType == Map.class) {
+                // Vérifier les types génériques
+                Type genericType = param.getParameterizedType();
+                if (genericType instanceof java.lang.reflect.ParameterizedType) {
+                    java.lang.reflect.ParameterizedType pType = (java.lang.reflect.ParameterizedType) genericType;
+                    Type[] typeArgs = pType.getActualTypeArguments();
+                    
+                    // Accepter seulement Map<String, Object> ou Map<String, ?>
+                    if (typeArgs.length == 2 && typeArgs[0] != String.class) {
+                        args[i] = null;
+                        continue;
+                    }
+                }
+                
+                Map<String, Object> paramMap = new HashMap<>();
+                Enumeration<String> paramNames = request.getParameterNames();
+                
+                while (paramNames.hasMoreElements()) {
+                    String paramName = paramNames.nextElement();
+                    String[] values = request.getParameterValues(paramName);
+                    
+                    if (values.length == 1) {
+                        paramMap.put(paramName, values[0]);
+                    } else {
+                        paramMap.put(paramName, values);
+                    }
+                }
+                
+                args[i] = paramMap;
+                continue;
+            }
+            
             String value = null;
             
-            // Vérifier si c'est une variable de chemin (@PathVariable)
             if (param.isAnnotationPresent(PathVariable.class)) {
                 String varName = param.getAnnotation(PathVariable.class).value();
                 if (pathVariables != null) {
                     value = pathVariables.get(varName);
                 }
-            }
-            // Sinon, vérifier si c'est un paramètre de requête (@Param ou nom par défaut)
-            else {
+            } else {
                 String paramName;
                 if (param.isAnnotationPresent(Param.class)) {
                     paramName = param.getAnnotation(Param.class).value();

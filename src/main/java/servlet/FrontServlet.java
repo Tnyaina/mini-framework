@@ -63,28 +63,41 @@ public class FrontServlet extends HttpServlet {
                 Object controllerInstance = mapping.getControllerClass()
                         .getDeclaredConstructor().newInstance();
 
-                // Extraire les variables de chemin
                 Map<String, String> pathVariables = UrlMatcher.extractPathVariables(matchedPattern, url);
-                
-                // Résoudre les paramètres avec les variables de chemin
                 Object[] args = ParameterResolver.resolveParameters(mapping.getMethod(), request, pathVariables);
+                
+                // Trouver la Map injectée dans les arguments
+                Map<String, Object> paramMap = null;
+                for (Object arg : args) {
+                    if (arg instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> map = (Map<String, Object>) arg;
+                        paramMap = map;
+                        break;
+                    }
+                }
+                
                 Object result = mapping.getMethod().invoke(controllerInstance, args);
+
+                // Transférer la Map vers la vue via request attributes
+                if (paramMap != null && !paramMap.isEmpty()) {
+                    for (Map.Entry<String, Object> entry : paramMap.entrySet()) {
+                        request.setAttribute(entry.getKey(), entry.getValue());
+                    }
+                }
 
                 if (result instanceof String) {
                     String view = (String) result;
                     String path = view.startsWith("/") ? view : "/" + view;
                     if (!path.contains("."))
                         path += ".jsp";
-
                     request.getRequestDispatcher(path).forward(request, response);
 
                 } else if (result instanceof ModelView) {
                     ModelView mv = (ModelView) result;
-
                     for (Map.Entry<String, Object> entry : mv.getData().entrySet()) {
                         request.setAttribute(entry.getKey(), entry.getValue());
                     }
-
                     request.getRequestDispatcher("/" + mv.getView()).forward(request, response);
                 }
 
@@ -100,7 +113,7 @@ public class FrontServlet extends HttpServlet {
             response.setContentType("text/html; charset=UTF-8");
             response.setStatus(HttpServletResponse.SC_NOT_FOUND);
             PrintWriter out = response.getWriter();
-            out.println("<h2>Erreur 404 - Page non trouvee</h2>");
+            out.println("<h2>Erreur 404 - Page non trouvée</h2>");
             out.println("<p>L'URL <strong>" + url + "</strong> n'est pas reconnue.</p>");
         }
     }
