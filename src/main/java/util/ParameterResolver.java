@@ -3,6 +3,7 @@ package util;
 import annotation.Param;
 import annotation.PathVariable;
 import jakarta.servlet.http.HttpServletRequest;
+import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
@@ -12,6 +13,9 @@ import java.util.Enumeration;
 import java.lang.reflect.Type;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TreeMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class ParameterResolver {
 
@@ -34,13 +38,39 @@ public class ParameterResolver {
                 continue;
             }
 
-            // 2. Injection objet custom (binding)
+            // 2. Support des tableaux
+            if (paramType.isArray()) {
+                Class<?> componentType = paramType.getComponentType();
+                String paramName = param.isAnnotationPresent(Param.class) 
+                    ? param.getAnnotation(Param.class).value()
+                    : param.getName();
+                
+                // Tableaux d'objets complexes (avec notation indexée)
+                if (!isPrimitiveOrWrapper(componentType) && componentType != String.class) {
+                    args[i] = bindObjectArray(componentType, paramName, request);
+                } else {
+                    // Tableaux de primitives/String
+                    String[] values = request.getParameterValues(paramName);
+                    if (values != null) {
+                        Object array = Array.newInstance(componentType, values.length);
+                        for (int j = 0; j < values.length; j++) {
+                            Array.set(array, j, convertValue(values[j], componentType));
+                        }
+                        args[i] = array;
+                    } else {
+                        args[i] = Array.newInstance(componentType, 0);
+                    }
+                }
+                continue;
+            }
+
+            // 3. Injection objet custom (binding)
             if (!isPrimitiveOrWrapper(paramType) && paramType != String.class) {
                 args[i] = bindObject(paramType, request, "");
                 continue;
             }
 
-            // 3. Paramètres simples (@Param, @PathVariable, primitifs)
+            // 4. Paramètres simples (@Param, @PathVariable, primitifs)
             String value = null;
 
             if (param.isAnnotationPresent(PathVariable.class)) {
@@ -62,6 +92,119 @@ public class ParameterResolver {
         }
 
         return args;
+    }
+
+    /**
+     * Binder un tableau d'objets depuis notation indexée
+     * Ex: emp[0].nom=John&emp[0].age=30&emp[1].nom=Jane&emp[1].age=25
+     */
+    private static Object bindObjectArray(Class<?> componentType, String paramName, HttpServletRequest request) {
+        // Pattern pour détecter paramName[index].propriété
+        Pattern pattern = Pattern.compile("^" + Pattern.quote(paramName) + "\\[(\\d+)\\]\\.(.+)$");
+        
+        // Map pour grouper les paramètres par index
+        Map<Integer, Map<String, String>> groupedParams = new TreeMap<>();
+        
+        Enumeration<String> paramNames = request.getParameterNames();
+        while (paramNames.hasMoreElements()) {
+            String currentParam = paramNames.nextElement();
+            Matcher matcher = pattern.matcher(currentParam);
+            
+            if (matcher.matches()) {
+                int index = Integer.parseInt(matcher.group(1));
+                String propertyPath = matcher.group(2); // ex: "nom" ou "ecole.nom"
+                String value = request.getParameter(currentParam);
+                
+                groupedParams.putIfAbsent(index, new HashMap<>());
+                groupedParams.get(index).put(propertyPath, value);
+            }
+        }
+        
+        if (groupedParams.isEmpty()) {
+            return Array.newInstance(componentType, 0);
+        }
+        
+        // Créer le tableau
+        int maxIndex = groupedParams.keySet().stream().max(Integer::compare).orElse(-1);
+        Object array = Array.newInstance(componentType, maxIndex + 1);
+        
+        // Remplir chaque objet du tableau
+        for (Map.Entry<Integer, Map<String, String>> entry : groupedParams.entrySet()) {
+            int index = entry.getKey();
+            Map<String, String> properties = entry.getValue();
+            
+            Object instance = bindObjectFromMap(componentType, properties);
+            Array.set(array, index, instance);
+        }
+        
+        return array;
+    }
+
+    /**
+     * Créer un objet depuis une Map de propriétés
+     * Supporte les propriétés imbriquées: "ecole.nom" -> obj.ecole.nom
+     */
+    private static Object bindObjectFromMap(Class<?> type, Map<String, String> properties) {
+        try {
+            Object instance = type.getDeclaredConstructor().newInstance();
+            
+            for (Map.Entry<String, String> entry : properties.entrySet()) {
+                String propertyPath = entry.getKey();
+                String value = entry.getValue();
+                
+                setNestedProperty(instance, propertyPath, value);
+            }
+            
+            return instance;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /**
+     * Définir une propriété imbriquée
+     * Ex: setNestedProperty(etudiant, "ecole.nom", "MIT")
+     */
+    private static void setNestedProperty(Object target, String propertyPath, String value) {
+        try {
+            String[] parts = propertyPath.split("\\.", 2);
+            String fieldName = parts[0];
+            
+            Field field = findField(target.getClass(), fieldName);
+            if (field == null) return;
+            
+            field.setAccessible(true);
+            
+            if (parts.length == 1) {
+                // Propriété simple
+                field.set(target, convertValue(value, field.getType()));
+            } else {
+                // Propriété imbriquée
+                Object nestedObject = field.get(target);
+                if (nestedObject == null) {
+                    nestedObject = field.getType().getDeclaredConstructor().newInstance();
+                    field.set(target, nestedObject);
+                }
+                setNestedProperty(nestedObject, parts[1], value);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Trouver un champ dans une classe (y compris héritées)
+     */
+    private static Field findField(Class<?> clazz, String fieldName) {
+        try {
+            return clazz.getDeclaredField(fieldName);
+        } catch (NoSuchFieldException e) {
+            if (clazz.getSuperclass() != null) {
+                return findField(clazz.getSuperclass(), fieldName);
+            }
+            return null;
+        }
     }
 
     /**
