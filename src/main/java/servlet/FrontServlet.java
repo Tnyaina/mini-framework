@@ -5,6 +5,7 @@ import java.util.Map;
 
 import jakarta.servlet.*;
 import jakarta.servlet.http.*;
+import jakarta.servlet.annotation.MultipartConfig;
 import util.Mapping;
 import util.ModelView;
 import util.ParameterResolver;
@@ -12,6 +13,11 @@ import util.UrlMatcher;
 import util.ApiResponse;
 import util.JsonConverter;
 
+@MultipartConfig(
+    maxFileSize = 10485760,      // 10 MB max par fichier
+    maxRequestSize = 20971520,   // 20 MB max pour la requête totale
+    fileSizeThreshold = 1048576  // 1 MB - seuil pour stockage temporaire
+)
 public class FrontServlet extends HttpServlet {
 
     @Override
@@ -92,14 +98,11 @@ public class FrontServlet extends HttpServlet {
                     Object jsonData = null;
 
                     if (result instanceof ModelView) {
-                        // Si ModelView, extraire les données
                         ModelView mv = (ModelView) result;
                         jsonData = mv.getData();
                     } else if (result instanceof ApiResponse) {
-                        // Si déjà ApiResponse, utiliser directement
                         jsonData = result;
                     } else {
-                        // Sinon, wrapper dans ApiResponse
                         jsonData = ApiResponse.success(result);
                     }
 
@@ -109,7 +112,6 @@ public class FrontServlet extends HttpServlet {
 
                 } else {
                     // Mode classique : JSP
-                    // Transférer la Map vers la vue via request attributes
                     if (paramMap != null && !paramMap.isEmpty()) {
                         for (Map.Entry<String, Object> entry : paramMap.entrySet()) {
                             request.setAttribute(entry.getKey(), entry.getValue());
@@ -135,12 +137,10 @@ public class FrontServlet extends HttpServlet {
             } catch (Exception e) {
                 e.printStackTrace();
 
-                // Vérifier si c'est une API REST
                 boolean isRestApi = mapping != null &&
                         mapping.getMethod().isAnnotationPresent(annotation.RestAPI.class);
 
                 if (isRestApi) {
-                    // Erreur JSON pour REST API
                     response.setContentType("application/json; charset=UTF-8");
                     response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
                     PrintWriter out = response.getWriter();
@@ -150,7 +150,6 @@ public class FrontServlet extends HttpServlet {
                     out.print(errorJson);
                     out.flush();
                 } else {
-                    // Erreur HTML classique
                     response.setContentType("text/html; charset=UTF-8");
                     response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
                     PrintWriter out = response.getWriter();
