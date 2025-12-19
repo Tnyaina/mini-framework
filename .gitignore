@@ -4,3 +4,4 @@ build/
 # JAR file
 mini-framework.jar  
 mini-framework.jar
+.DS_Store
