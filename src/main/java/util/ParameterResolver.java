@@ -3,6 +3,7 @@ package util;
 import annotation.Param;
 import annotation.PathVariable;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.Part;
 import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -16,6 +17,9 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.Collection;
+import java.util.ArrayList;
+import java.util.List;
 
 public class ParameterResolver {
 
@@ -32,18 +36,34 @@ public class ParameterResolver {
             Parameter param = parameters[i];
             Class<?> paramType = param.getType();
 
-            // 1. Injection Map<String, Object>
+            // 1. Injection Map<String, Object> (inclut maintenant les fichiers)
             if (paramType == Map.class) {
                 args[i] = injectMapParameters(param, request);
                 continue;
             }
 
-            // 2. Support des tableaux
+            // 2. Support UploadedFile unique
+            if (paramType == UploadedFile.class) {
+                String paramName = param.isAnnotationPresent(Param.class) 
+                    ? param.getAnnotation(Param.class).value()
+                    : param.getName();
+                
+                args[i] = extractUploadedFile(request, paramName);
+                continue;
+            }
+
+            // 3. Support des tableaux
             if (paramType.isArray()) {
                 Class<?> componentType = paramType.getComponentType();
                 String paramName = param.isAnnotationPresent(Param.class) 
                     ? param.getAnnotation(Param.class).value()
                     : param.getName();
+                
+                // Tableaux UploadedFile[]
+                if (componentType == UploadedFile.class) {
+                    args[i] = extractUploadedFiles(request, paramName);
+                    continue;
+                }
                 
                 // Tableaux d'objets complexes (avec notation indexée)
                 if (!isPrimitiveOrWrapper(componentType) && componentType != String.class) {
@@ -64,13 +84,13 @@ public class ParameterResolver {
                 continue;
             }
 
-            // 3. Injection objet custom (binding)
+            // 4. Injection objet custom (binding)
             if (!isPrimitiveOrWrapper(paramType) && paramType != String.class) {
                 args[i] = bindObject(paramType, request, "");
                 continue;
             }
 
-            // 4. Paramètres simples (@Param, @PathVariable, primitifs)
+            // 5. Paramètres simples (@Param, @PathVariable, primitifs)
             String value = null;
 
             if (param.isAnnotationPresent(PathVariable.class)) {
@@ -95,14 +115,58 @@ public class ParameterResolver {
     }
 
     /**
+     * Extraire un fichier uploadé unique
+     */
+    private static UploadedFile extractUploadedFile(HttpServletRequest request, String name) {
+        try {
+            Part part = request.getPart(name);
+            if (part != null && part.getContentType() != null) {
+                return new UploadedFile(
+                    UploadedFile.extractFilename(part),
+                    part.getContentType(),
+                    part.getInputStream().readAllBytes(),
+                    part
+                );
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    /**
+     * Extraire plusieurs fichiers uploadés (même name ou différents)
+     */
+    private static UploadedFile[] extractUploadedFiles(HttpServletRequest request, String name) {
+        try {
+            Collection<Part> parts = request.getParts();
+            List<UploadedFile> files = new ArrayList<>();
+            
+            for (Part part : parts) {
+                if (part.getName().equals(name) && part.getContentType() != null) {
+                    files.add(new UploadedFile(
+                        UploadedFile.extractFilename(part),
+                        part.getContentType(),
+                        part.getInputStream().readAllBytes(),
+                        part
+                    ));
+                }
+            }
+            
+            return files.toArray(new UploadedFile[0]);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return new UploadedFile[0];
+    }
+
+    /**
      * Binder un tableau d'objets depuis notation indexée
      * Ex: emp[0].nom=John&emp[0].age=30&emp[1].nom=Jane&emp[1].age=25
      */
     private static Object bindObjectArray(Class<?> componentType, String paramName, HttpServletRequest request) {
-        // Pattern pour détecter paramName[index].propriété
         Pattern pattern = Pattern.compile("^" + Pattern.quote(paramName) + "\\[(\\d+)\\]\\.(.+)$");
         
-        // Map pour grouper les paramètres par index
         Map<Integer, Map<String, String>> groupedParams = new TreeMap<>();
         
         Enumeration<String> paramNames = request.getParameterNames();
@@ -112,7 +176,7 @@ public class ParameterResolver {
             
             if (matcher.matches()) {
                 int index = Integer.parseInt(matcher.group(1));
-                String propertyPath = matcher.group(2); // ex: "nom" ou "ecole.nom"
+                String propertyPath = matcher.group(2);
                 String value = request.getParameter(currentParam);
                 
                 groupedParams.putIfAbsent(index, new HashMap<>());
@@ -124,11 +188,9 @@ public class ParameterResolver {
             return Array.newInstance(componentType, 0);
         }
         
-        // Créer le tableau
         int maxIndex = groupedParams.keySet().stream().max(Integer::compare).orElse(-1);
         Object array = Array.newInstance(componentType, maxIndex + 1);
         
-        // Remplir chaque objet du tableau
         for (Map.Entry<Integer, Map<String, String>> entry : groupedParams.entrySet()) {
             int index = entry.getKey();
             Map<String, String> properties = entry.getValue();
@@ -177,10 +239,8 @@ public class ParameterResolver {
             field.setAccessible(true);
             
             if (parts.length == 1) {
-                // Propriété simple
                 field.set(target, convertValue(value, field.getType()));
             } else {
-                // Propriété imbriquée
                 Object nestedObject = field.get(target);
                 if (nestedObject == null) {
                     nestedObject = field.getType().getDeclaredConstructor().newInstance();
@@ -208,7 +268,7 @@ public class ParameterResolver {
     }
 
     /**
-     * Injecter tous les paramètres dans une Map<String, Object>
+     * Injecter tous les paramètres ET fichiers dans une Map<String, Object>
      */
     private static Map<String, Object> injectMapParameters(Parameter param, HttpServletRequest request) {
         Type genericType = param.getParameterizedType();
@@ -222,8 +282,9 @@ public class ParameterResolver {
         }
 
         Map<String, Object> paramMap = new HashMap<>();
+        
+        // Paramètres normaux
         Enumeration<String> paramNames = request.getParameterNames();
-
         while (paramNames.hasMoreElements()) {
             String paramName = paramNames.nextElement();
             String[] values = request.getParameterValues(paramName);
@@ -233,6 +294,37 @@ public class ParameterResolver {
             } else {
                 paramMap.put(paramName, values);
             }
+        }
+
+        // Fichiers uploadés
+        try {
+            Collection<Part> parts = request.getParts();
+            for (Part part : parts) {
+                if (part.getContentType() != null) {
+                    UploadedFile file = new UploadedFile(
+                        UploadedFile.extractFilename(part),
+                        part.getContentType(),
+                        part.getInputStream().readAllBytes(),
+                        part
+                    );
+                    
+                    // Si déjà une liste pour ce nom, ajouter au tableau
+                    Object existing = paramMap.get(part.getName());
+                    if (existing instanceof UploadedFile[]) {
+                        UploadedFile[] oldArray = (UploadedFile[]) existing;
+                        UploadedFile[] newArray = new UploadedFile[oldArray.length + 1];
+                        System.arraycopy(oldArray, 0, newArray, 0, oldArray.length);
+                        newArray[oldArray.length] = file;
+                        paramMap.put(part.getName(), newArray);
+                    } else if (existing instanceof UploadedFile) {
+                        paramMap.put(part.getName(), new UploadedFile[]{(UploadedFile) existing, file});
+                    } else {
+                        paramMap.put(part.getName(), file);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
 
         return paramMap;
@@ -253,13 +345,11 @@ public class ParameterResolver {
 
                 if (isPrimitiveOrWrapper(fieldType) || fieldType == String.class ||
                         fieldType.isEnum() || fieldType == LocalDate.class || fieldType == LocalDateTime.class) {
-                    // Champ simple : récupérer directement le paramètre
                     String value = request.getParameter(fieldName);
                     if (value != null && !value.isEmpty()) {
                         field.set(instance, convertValue(value, fieldType));
                     }
                 } else {
-                    // Objet imbriqué : récursion avec préfixe
                     Object nestedObject = bindObject(fieldType, request, fieldName);
                     if (nestedObject != null) {
                         field.set(instance, nestedObject);
