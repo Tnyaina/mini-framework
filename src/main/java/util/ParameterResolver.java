@@ -36,13 +36,19 @@ public class ParameterResolver {
             Parameter param = parameters[i];
             Class<?> paramType = param.getType();
 
-            // 1. Injection Map<String, Object> (inclut maintenant les fichiers)
+            // 1. Injection @Session Map<String, Object>
+            if (param.isAnnotationPresent(annotation.Session.class) && paramType == Map.class) {
+                args[i] = getSessionMap(request);
+                continue;
+            }
+
+            // 2. Injection Map<String, Object> (params HTTP)
             if (paramType == Map.class) {
                 args[i] = injectMapParameters(param, request);
                 continue;
             }
 
-            // 2. Support UploadedFile unique
+            // 3. Support UploadedFile unique
             if (paramType == UploadedFile.class) {
                 String paramName = param.isAnnotationPresent(Param.class) 
                     ? param.getAnnotation(Param.class).value()
@@ -52,7 +58,7 @@ public class ParameterResolver {
                 continue;
             }
 
-            // 3. Support des tableaux
+            // 4. Support des tableaux
             if (paramType.isArray()) {
                 Class<?> componentType = paramType.getComponentType();
                 String paramName = param.isAnnotationPresent(Param.class) 
@@ -84,13 +90,13 @@ public class ParameterResolver {
                 continue;
             }
 
-            // 4. Injection objet custom (binding)
+            // 5. Injection objet custom (binding)
             if (!isPrimitiveOrWrapper(paramType) && paramType != String.class) {
                 args[i] = bindObject(paramType, request, "");
                 continue;
             }
 
-            // 5. Paramètres simples (@Param, @PathVariable, primitifs)
+            // 6. Paramètres simples (@Param, @PathVariable, primitifs)
             String value = null;
 
             if (param.isAnnotationPresent(PathVariable.class)) {
@@ -112,6 +118,21 @@ public class ParameterResolver {
         }
 
         return args;
+    }
+
+    /**
+     * Récupère ou crée le Map de session depuis request attribute
+     */
+    private static Map<String, Object> getSessionMap(HttpServletRequest request) {
+        @SuppressWarnings("unchecked")
+        Map<String, Object> sessionMap = (Map<String, Object>) request.getAttribute("__session_map__");
+        
+        if (sessionMap == null) {
+            sessionMap = new HashMap<>();
+            request.setAttribute("__session_map__", sessionMap);
+        }
+        
+        return sessionMap;
     }
 
     /**

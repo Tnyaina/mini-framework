@@ -14,9 +14,9 @@ import util.ApiResponse;
 import util.JsonConverter;
 
 @MultipartConfig(
-    maxFileSize = 10485760,      // 10 MB max par fichier
-    maxRequestSize = 20971520,   // 20 MB max pour la requête totale
-    fileSizeThreshold = 1048576  // 1 MB - seuil pour stockage temporaire
+    maxFileSize = 10485760,
+    maxRequestSize = 20971520,
+    fileSizeThreshold = 1048576
 )
 public class FrontServlet extends HttpServlet {
 
@@ -72,6 +72,17 @@ public class FrontServlet extends HttpServlet {
                         .getDeclaredConstructor().newInstance();
 
                 Map<String, String> pathVariables = UrlMatcher.extractPathVariables(matchedPattern, url);
+                
+                // Charger la session depuis HttpSession vers Map temporaire
+                java.util.Map<String, Object> sessionMap = new java.util.HashMap<>();
+                HttpSession httpSession = request.getSession(true);
+                java.util.Enumeration<String> sessionAttrs = httpSession.getAttributeNames();
+                while (sessionAttrs.hasMoreElements()) {
+                    String key = sessionAttrs.nextElement();
+                    sessionMap.put(key, httpSession.getAttribute(key));
+                }
+                request.setAttribute("__session_map__", sessionMap);
+                
                 Object[] args = ParameterResolver.resolveParameters(mapping.getMethod(), request, pathVariables);
 
                 // Trouver la Map injectée dans les arguments
@@ -80,12 +91,39 @@ public class FrontServlet extends HttpServlet {
                     if (arg instanceof Map) {
                         @SuppressWarnings("unchecked")
                         Map<String, Object> map = (Map<String, Object>) arg;
-                        paramMap = map;
-                        break;
+                        // Vérifier que ce n'est pas le sessionMap
+                        if (map != sessionMap) {
+                            paramMap = map;
+                            break;
+                        }
                     }
                 }
 
                 Object result = mapping.getMethod().invoke(controllerInstance, args);
+
+                // Persister le Map session modifié dans HttpSession
+                @SuppressWarnings("unchecked")
+                java.util.Map<String, Object> modifiedSession = 
+                    (java.util.Map<String, Object>) request.getAttribute("__session_map__");
+                if (modifiedSession != null) {
+                    // 1. Supprimer les clés qui ont disparu du Map
+                    java.util.Set<String> sessionKeys = new java.util.HashSet<>();
+                    java.util.Enumeration<String> attrs = httpSession.getAttributeNames();
+                    while (attrs.hasMoreElements()) {
+                        sessionKeys.add(attrs.nextElement());
+                    }
+                    
+                    for (String key : sessionKeys) {
+                        if (!modifiedSession.containsKey(key)) {
+                            httpSession.removeAttribute(key);
+                        }
+                    }
+                    
+                    // 2. Ajouter/Modifier les nouvelles valeurs
+                    for (Map.Entry<String, Object> entry : modifiedSession.entrySet()) {
+                        httpSession.setAttribute(entry.getKey(), entry.getValue());
+                    }
+                }
 
                 // Vérifier si c'est une API REST
                 boolean isRestApi = mapping.getMethod().isAnnotationPresent(annotation.RestAPI.class);
