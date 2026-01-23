@@ -12,6 +12,8 @@ import util.ParameterResolver;
 import util.UrlMatcher;
 import util.ApiResponse;
 import util.JsonConverter;
+import util.SecurityConfig;
+import util.SecurityChecker;
 
 @MultipartConfig(
     maxFileSize = 10485760,
@@ -23,6 +25,9 @@ public class FrontServlet extends HttpServlet {
     @Override
     public void init() throws ServletException {
         try {
+            // Charger configuration sécurité
+            SecurityConfig.load();
+            
             Map<String, Mapping> mappings = Mapping.scanControllers();
             getServletContext().setAttribute("urlMappings", mappings);
         } catch (Exception e) {
@@ -82,6 +87,24 @@ public class FrontServlet extends HttpServlet {
                     sessionMap.put(key, httpSession.getAttribute(key));
                 }
                 request.setAttribute("__session_map__", sessionMap);
+                
+                // ===== VÉRIFICATION SÉCURITÉ =====
+                SecurityChecker.SecurityResult securityCheck = 
+                    SecurityChecker.checkAccess(mapping.getMethod(), sessionMap);
+                
+                if (!securityCheck.isAllowed()) {
+                    response.setContentType("application/json; charset=UTF-8");
+                    response.setStatus(securityCheck.getStatusCode());
+                    PrintWriter out = response.getWriter();
+                    
+                    String errorJson = JsonConverter.toJson(
+                        ApiResponse.error(securityCheck.getStatusCode(), securityCheck.getMessage())
+                    );
+                    out.print(errorJson);
+                    out.flush();
+                    return;
+                }
+                // ===== FIN VÉRIFICATION =====
                 
                 Object[] args = ParameterResolver.resolveParameters(mapping.getMethod(), request, pathVariables);
 
